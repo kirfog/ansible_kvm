@@ -1,0 +1,108 @@
+---
+- name: Debian vms
+  hosts: debian
+  gather_facts: false
+
+  tasks:
+    - name: Image path
+      ansible.builtin.set_fact:
+        images_dir: "{{ hostvars[pve_target_host]['images_dir'] }}"
+        local_base_image: "{{ hostvars[pve_target_host]['images_dir'] }}/{{ hostvars[pve_target_host]['debian_base_image'] }}"
+        vm_name: "{{ inventory_hostname }}"
+
+    - name: Create vm
+      delegate_to: "{{ pve_target_host }}"
+      become: true
+      block:
+        - name: find .qcow2
+          ansible.builtin.stat:
+            path: "{{ images_dir }}/{{ vm_name }}.qcow2"
+          register: disk_file
+
+        - name: check vm_recreate
+          ansible.builtin.set_fact:
+            need_deploy: "{{ vm_recreate | bool or not disk_file.stat.exists }}"
+
+        - name: stop vm
+          ansible.builtin.command: "virsh --connect qemu:///system destroy {{ vm_name }}"
+          failed_when: false
+          changed_when: false
+          when: need_deploy
+
+        - name: remove disk
+          ansible.builtin.command: "virsh --connect qemu:///system undefine {{ vm_name }} --remove-all-storage"
+          failed_when: false
+          changed_when: false
+          when: need_deploy
+
+        - name: new disk
+          ansible.builtin.command: >
+            qemu-img create -f qcow2 -F qcow2 -b "{{ local_base_image }}"
+            "{{ images_dir }}/{{ vm_name }}.qcow2" {{ vm_disk_size }}
+          when: need_deploy
+
+        - name: base settings
+          ansible.builtin.command:
+            argv:
+              - virt-sysprep
+              - -a
+              - "{{ images_dir }}/{{ vm_name }}.qcow2"
+              - --ssh-inject
+              - "root:file:{{ ssh_public_key_path }}"
+              - --hostname
+              - "{{ vm_name }}"
+              - --run-command
+              - "echo '# systemd-networkd' > /etc/network/interfaces"
+              - --run-command
+              - "mkdir -p /etc/systemd/network /etc/ssh/sshd_config.d /etc/sysctl.d"
+              - --run-command
+              - "systemctl enable systemd-networkd"
+              - --run-command
+              - "systemctl enable systemd-resolved"
+              - --run-command
+              - "echo 'PermitRootLogin prohibit-password' > /etc/ssh/sshd_config.d/permit-root.conf"
+              - --run-command
+              - "ssh-keygen -A"
+              - --run-command
+              - "systemctl enable ssh"
+              - --write
+              - "/etc/systemd/network/20-static.network:[Match]\nName=enp1s0\n\n[Network]\nAddress={{ ansible_host }}/{{ vm_netmask }}\nGateway={{ vm_gateway }}\nDNS={{ vm_dns }}\nLinkLocalAddressing=no\nIPv6AcceptRA=no"
+              - --write
+              - "/etc/sysctl.d/99-disable-ipv6.conf:net.ipv6.conf.all.disable_ipv6 = 1\nnet.ipv6.conf.default.disable_ipv6 = 1\nnet.ipv6.conf.lo.disable_ipv6 = 1\nnet.ipv6.conf.enp1s0.disable_ipv6 = 1"
+              - --upload
+              - "{{ playbook_dir }}/files/debian.sources:/etc/apt/sources.list.d/debian.sources"
+          when: need_deploy
+
+        - name: create vm
+          ansible.builtin.command: >
+            virt-install
+            --connect qemu:///system
+            --name "{{ vm_name }}"
+            --ram {{ vm_ram }}
+            --vcpus {{ vm_vcpus }}
+            --os-variant debian12
+            --disk path={{ images_dir }}/{{ vm_name }}.qcow2,device=disk,bus=virtio,format=qcow2
+            --network bridge=br0,model=virtio
+            --graphics spice,listen=127.0.0.1
+            --import
+            --noautoconsole
+            --check path_in_use=off
+          register: virt_result
+          failed_when: virt_result.rc != 0 and 'already exists' not in virt_result.stderr
+          changed_when: virt_result.rc == 0
+          when: need_deploy
+
+        - name: check vm status
+          ansible.builtin.command: "virsh --connect qemu:///system start {{ vm_name }}"
+          failed_when: false
+          changed_when: false
+          when: not need_deploy
+
+    - name: SSH access
+      ansible.builtin.wait_for:
+        host: "{{ ansible_host }}"
+        port: 22
+        delay: 5
+        timeout: 300
+        state: started
+      delegate_to: localhost

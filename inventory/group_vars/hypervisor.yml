@@ -1,0 +1,21 @@
+# ansible_connection: ssh
+# ansible_user: root
+# ansible_ssh_private_key_file: "{{ playbook_dir }}/.ssh/id_ed25519"
+
+ansible_connection: local
+ansible_become: true
+ansible_become_pass: "{{ ansible_become_pass_on_host }}"
+ansible_become_pass_on_host: !vault |
+          $ANSIBLE_VAULT;1.1;AES256
+          37366262356666393463303661366665353063393237323635613763346432393536663032613432
+          3862383132623566633365376331663832656164313138660a306464616235373839353031323233
+          36623434306664663166666439326465313436613138646238643762653565613739386138373937
+          3462623263353437320a633132356164623230316132633131306166623636623636623531623832
+          3065
+
+images_dir: "/mnt/sda1/vms"
+debian_base_image: "debian-13-generic-amd64.qcow2"
+rocky_base_image: "Rocky-10-GenericCloud-Base.latest.x86_64.qcow2"
+
+debian_url: "https://cdimage.debian.org/cdimage/cloud/trixie/latest/debian-13-generic-amd64.qcow2"
+rocky_url: "https://dl.rockylinux.org/pub/rocky/10/images/x86_64/Rocky-10-GenericCloud-Base.latest.x86_64.qcow2"

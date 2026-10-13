@@ -1,0 +1,15 @@
+---
+ansible_connection: ssh
+ansible_user: root
+ansible_ssh_private_key_file: "{{ playbook_dir }}/.ssh/id_ed25519"
+ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+
+vm_ram: 2048
+vm_vcpus: 2
+vm_netmask: 24
+vm_dns: 1.1.1.1
+vm_gateway: 192.168.88.1
+vm_recreate: true
+vm_disk_size: "10G"
+
+ssh_public_key_path: "{{ playbook_dir }}/.ssh/id_ed25519.pub"
